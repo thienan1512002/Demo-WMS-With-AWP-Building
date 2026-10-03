@@ -1,4 +1,5 @@
 import { render, screen, cleanup } from '@testing-library/react'
+import '@testing-library/jest-dom/vitest'
 import { afterEach, expect, test, vi } from 'vitest'
 import { BackendStatus } from './BackendStatus'
 
