@@ -54,6 +54,20 @@ public sealed class WarehouseTests
         Assert.Empty(db.ChangeTracker.Entries());
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task EmptyPostingIdsFailBeforeAccessingDatabase(int emptyIndex)
+    {
+        await using var db = Context();
+        var ids = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
+        ids[emptyIndex] = Guid.Empty;
+        await Assert.ThrowsAsync<ArgumentException>(() => new StockPosting(db).PostAsync(
+            ids[0], ids[1], ids[2], StockTransactionType.Receipt, 1, DateTime.UtcNow, "test"));
+        Assert.Empty(db.ChangeTracker.Entries());
+    }
+
     [PostgresFact]
     public async Task RealProviderMigrationConstraintsAtomicPostingConcurrencyAndRollback()
     {
@@ -151,7 +165,7 @@ public sealed class WarehouseTests
                         quantity, DateTime.UtcNow, "integration-test");
                     return true;
                 }
-                catch (DbUpdateException e) when (e.InnerException is PostgresException { SqlState: "23514" })
+                catch (StockPostingException e) when (e.Error == StockPostingError.BusinessRule)
                 {
                     return false;
                 }
@@ -163,6 +177,38 @@ public sealed class WarehouseTests
             Assert.Single(competing, x => x);
             Assert.Equal(3, (await db.InventoryBalances.SingleAsync()).Quantity);
             Assert.Equal(2, await db.StockTransactions.CountAsync());
+            // A successful issue may exhaust stock; replay must still return the original result.
+            var requestId = Guid.NewGuid();
+            var occurrence = DateTime.UtcNow;
+            async Task<Guid> Replay()
+            {
+                await using var independent = Context(connection);
+                return await new StockPosting(independent).PostAsync(requestId, goods.Id, warehouse.Id,
+                    StockTransactionType.Issue, 3, occurrence, "idempotency-test");
+            }
+            var replies = await Task.WhenAll(Replay(), Replay());
+            Assert.All(replies, id => Assert.Equal(requestId, id));
+            Assert.Equal(requestId, await Replay());
+            Assert.Equal(0, (await db.InventoryBalances.AsNoTracking().SingleAsync()).Quantity);
+            Assert.Equal(3, await db.StockTransactions.CountAsync());
+            var posted = await db.StockTransactions.AsNoTracking().SingleAsync(x => x.Id == requestId);
+            Assert.Equal(goods.Id, posted.GoodsId);
+            Assert.Equal(warehouse.Id, posted.WarehouseId);
+            Assert.Equal(StockTransactionType.Issue, posted.Type);
+            Assert.Equal(3, posted.Quantity);
+            Assert.Equal("idempotency-test", posted.Actor);
+            Assert.Equal(occurrence.Ticks - occurrence.Ticks % 10, posted.OccurredAt.Ticks);
+            Assert.Equal(DateTimeKind.Utc, posted.CreatedAt.Kind);
+            var mismatch = await Assert.ThrowsAsync<StockPostingException>(() => new StockPosting(db).PostAsync(
+                requestId, goods.Id, warehouse.Id, StockTransactionType.Issue, 2, occurrence, "idempotency-test"));
+            Assert.Equal(StockPostingError.Conflict, mismatch.Error);
+            var missing = await Assert.ThrowsAsync<StockPostingException>(() => new StockPosting(db).PostAsync(
+                Guid.NewGuid(), warehouse.Id, StockTransactionType.Receipt, 1, occurrence, "test"));
+            Assert.Equal(StockPostingError.NotFound, missing.Error);
+            Assert.Equal(0, (await db.InventoryBalances.AsNoTracking().SingleAsync()).Quantity);
+            Assert.Equal(3, await db.StockTransactions.CountAsync());
+            // Restore the baseline for the existing rollback/constraint assertions.
+            Assert.True(await Post(3, StockTransactionType.Receipt));
             // A BEFORE INSERT trigger has already changed the balance when a later
             // ledger constraint fails. The whole statement must still roll back.
             var existingPosting = await db.StockTransactions.AsNoTracking().FirstAsync();
@@ -172,7 +218,7 @@ public sealed class WarehouseTests
                     "INSERT INTO stock_transactions(id, goods_id, warehouse_id, type, quantity, occurred_at, created_at, actor) VALUES ({0},{1},{2},{3},1,now(),now(),{4})",
                     id, goodsId, warehouseId, type, actor));
                 Assert.Equal(3, (await db.InventoryBalances.AsNoTracking().SingleAsync()).Quantity);
-                Assert.Equal(2, await db.StockTransactions.CountAsync());
+                Assert.Equal(4, await db.StockTransactions.CountAsync());
             }
             await RejectPosting(existingPosting.Id, goods.Id, warehouse.Id, 1, "test");
             await RejectPosting(Guid.NewGuid(), goods.Id, warehouse.Id, 99, "test");
@@ -205,13 +251,13 @@ public sealed class WarehouseTests
             Assert.True(await catalog.ArchiveAsync(CatalogKind.Warehouses, warehouse.Id, default));
             Assert.NotNull((await catalog.GetAsync(CatalogKind.Warehouses, warehouse.Id, default))!.ArchivedAt);
             Assert.False(await Post(1, StockTransactionType.Receipt));
-            Assert.Equal(2, await db.StockTransactions.CountAsync());
+            Assert.Equal(4, await db.StockTransactions.CountAsync());
             // Archive after the rollback scenario, which needs active master data.
             Assert.True(await catalog.ArchiveAsync(CatalogKind.Goods, goods.Id, default));
             Assert.NotNull(await catalog.GetAsync(CatalogKind.Goods, goods.Id, default));
             Assert.False(await Post(1, StockTransactionType.Receipt));
             Assert.Equal(3, (await db.InventoryBalances.AsNoTracking().SingleAsync()).Quantity);
-            Assert.Equal(2, await db.StockTransactions.CountAsync());
+            Assert.Equal(4, await db.StockTransactions.CountAsync());
             await db.GetService<IMigrator>().MigrateAsync("0");
             await db.Database.MigrateAsync();
             Assert.Empty(await db.StockTransactions.ToListAsync());
