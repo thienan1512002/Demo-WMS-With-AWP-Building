@@ -17,6 +17,36 @@ creation and balance update audit times. Goods/warehouse CreatedAt and ArchivedA
 are UTC values supplied by the caller. Archive master data with ArchivedAt;
 physical deletion is rejected, and historical references remain accessible.
 
+## Master catalog API
+
+`/api/goods` and `/api/warehouses` expose GET list/detail, POST, PUT and
+DELETE through Minimal API routes. Application owns `IMasterCatalog`, DTOs and
+shared validation; Infrastructure implements the service using the existing scoped
+EF context. No schema changes are required. Code/name are trimmed and required,
+with limits of 64/256 characters. Codes are case-sensitive (the existing database
+unique index), immutable after creation, and reserved even after archive. Names
+can be corrected while active. DELETE is an idempotent archive, never physical
+deletion; existing ledger/balance references remain intact and the existing posting
+trigger rejects new postings to archived masters. Archived records remain readable
+and cannot be updated or restored through these routes.
+
+Lists return `{ items, total, page, pageSize }`, sorted by code then UUID. Defaults
+are page 1 and size 20 (maximum 100). Optional `search` matches a literal,
+case-sensitive substring of code/name; `archived=true/false` filters state, while
+omitting it includes both states. HTTP responses use 201 plus Location on create,
+200 for reads/updates, 204 for archive, 404 for missing IDs, ValidationProblem 400
+for invalid input, and ProblemDetails 409 for duplicate/immutable codes or updates
+to archived records. Database unique violations are also translated to 409 so
+competing creates receive the same response. Without persistence configuration,
+catalog routes return ProblemDetails 503; health remains available.
+
+The project currently has no authentication or authorization mechanism. These
+routes do not introduce one; access control must be supplied by the project's
+future authentication integration before exposing the API to untrusted clients.
+API tests use an injected service double to verify the HTTP contract. The existing
+opt-in disposable PostgreSQL test additionally exercises both real catalog services,
+uniqueness, filtering, updates and archive/reference preservation.
+
 ## Inventory and history
 
 Goods and Warehouse are separate master data with unique, nonempty codes and
@@ -90,7 +120,7 @@ dotnet test --no-build
 dotnet format --verify-no-changes --no-restore
 # Docker required; creates and removes a dedicated postgres:17-alpine container:
 $env:WAREHOUSE_POSTGRES_TESTS = '1'
-dotnet test --no-build --filter FullyQualifiedName~WarehouseTests
+dotnet test --no-build --logger "trx;LogFileName=warehouse-postgres.trx" --results-directory TestResults
 Remove-Item Env:WAREHOUSE_POSTGRES_TESTS
 ```
 
@@ -109,3 +139,12 @@ precision, quantity range, UTC occurrence time and blank actors.
 NuGet networking was also blocked during the original implementation; verification used the
 existing package cache through a temporary local feed with audit disabled for that
 restore command only. Run normal online restore/audit in the verification environment.
+
+The latest catalog review preserves the persisted-timestamp reload on create and
+the provider test's rollback-before-archive ordering. The operator reported all 18
+backend tests passing with PostgreSQL enabled before this review. Added API cases
+cover trimmed code/name length boundaries and update conflict responses. This
+review's build and format checks passed; the fresh `TestResults/warehouse-backend.trx`
+records 23 passed tests and one skipped provider test because Docker access is
+denied in the model sandbox. AWP must run the full suite with
+`WAREHOUSE_POSTGRES_TESTS=1` using the TRX command above for fresh provider evidence.

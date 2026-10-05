@@ -40,6 +40,6 @@ npm run lint
 - `tests/DeliveryDemo.Api.Tests`: HTTP integration tests using WebApplicationFactory.
 - `frontend`: React, TypeScript and Vite; Oxlint and Vitest/component tests.
 
-Follow `.editorconfig`, keep nullable reference types enabled, and use feature folders for warehouse work. Never commit credentials. The repository currently has no database/ORM, authentication, migrations or warehouse business rules. Those choices must be documented by the architecture/domain tasks before implementation; initial health checks prove application startup only.
+Follow `.editorconfig`, keep nullable reference types enabled, and use feature folders for warehouse work. Never commit credentials. Warehouse persistence uses EF Core 10/PostgreSQL with migrations, posting rules and master catalog APIs. See [warehouse architecture](docs/warehouse-architecture.md) for API contracts, configuration and disposable PostgreSQL tests. The repository has no authentication or authorization mechanism; access control is required before exposing catalog APIs to untrusted clients.
 
 Approved dependency changes are carried between AWP task workspaces. Review each task's evidence before approving. AWP verification includes backend and frontend separately.

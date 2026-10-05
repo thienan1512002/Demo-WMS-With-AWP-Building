@@ -10,6 +10,7 @@ public static class WarehouseServices
     {
         services.AddDbContext<WarehouseDbContext>(options => options.UseNpgsql(connectionString));
         services.AddScoped<IStockPosting, StockPosting>();
+        services.AddScoped<IMasterCatalog, MasterCatalog>();
         return services;
     }
 }

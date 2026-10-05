@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using DeliveryDemo.Application.Warehouse;
 using DeliveryDemo.Domain.Warehouse;
 using DeliveryDemo.Infrastructure.Warehouse;
 using Microsoft.EntityFrameworkCore;
@@ -58,7 +59,7 @@ public sealed class WarehouseTests
     {
         // Always provision a new disposable local container; never use an existing connection string.
         var name = "warehouse-test-" + Guid.NewGuid().ToString("N");
-        var [REDACTED];
+        var password = Guid.NewGuid().ToString("N");
         try
         {
             await Docker("run", "--detach", "--name", name, "-e", "POSTGRES_PASSWORD=" + password,
@@ -70,7 +71,7 @@ public sealed class WarehouseTests
                 Port = int.Parse(port),
                 Database = "postgres",
                 Username = "postgres",
-                [REDACTED],
+                Password = password,
                 Pooling = false
             }.ConnectionString;
             var ready = false;
@@ -87,6 +88,28 @@ public sealed class WarehouseTests
             Assert.True(ready, "Disposable PostgreSQL did not become ready.");
             await using var db = Context(connection);
             await db.Database.MigrateAsync();
+            var catalog = new MasterCatalog(db);
+            foreach (var kind in Enum.GetValues<CatalogKind>())
+            {
+                var item = await catalog.CreateAsync(kind, new(" MASTER ", " Master "), default);
+                Assert.Equal("MASTER", item.Code);
+                Assert.Equal(item, await catalog.GetAsync(kind, item.Id, default));
+                await Assert.ThrowsAsync<CatalogConflictException>(() => catalog.CreateAsync(kind, new("MASTER", "Duplicate"), default));
+                Assert.Equal("Updated", (await catalog.UpdateAsync(kind, item.Id, new("MASTER", "Updated"), default))!.Name);
+                await Assert.ThrowsAsync<CatalogConflictException>(() => catalog.UpdateAsync(kind, item.Id, new("CHANGED", "Updated"), default));
+                var page = await catalog.ListAsync(kind, 1, 1, "MASTER", false, default);
+                Assert.Single(page.Items);
+                Assert.Equal(1, page.Total);
+                Assert.True(await catalog.ArchiveAsync(kind, item.Id, default));
+                Assert.True(await catalog.ArchiveAsync(kind, item.Id, default));
+                Assert.NotNull((await catalog.GetAsync(kind, item.Id, default))!.ArchivedAt);
+                Assert.Empty((await catalog.ListAsync(kind, 1, 20, null, false, default)).Items);
+                Assert.Single((await catalog.ListAsync(kind, 1, 20, null, true, default)).Items);
+                await Assert.ThrowsAsync<CatalogConflictException>(() => catalog.CreateAsync(kind, new("MASTER", "Reserved"), default));
+                await Assert.ThrowsAsync<CatalogConflictException>(() => catalog.UpdateAsync(kind, item.Id, new("MASTER", "Archived"), default));
+                Assert.False(await catalog.ArchiveAsync(kind, Guid.NewGuid(), default));
+                Assert.Null(await catalog.UpdateAsync(kind, Guid.NewGuid(), new("MISSING", "Missing"), default));
+            }
             var goods = new Goods { Code = "G1", Name = "Goods" };
             var warehouse = new Domain.Warehouse.Warehouse { Code = "W1", Name = "Warehouse" };
             db.AddRange(goods, warehouse);
@@ -134,6 +157,10 @@ public sealed class WarehouseTests
             warehouse.ArchivedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
             Assert.False(await Post(1, StockTransactionType.Receipt));
+            Assert.Equal(2, await db.StockTransactions.CountAsync());
+            // Archive after the rollback scenario, which needs active master data.
+            Assert.True(await catalog.ArchiveAsync(CatalogKind.Goods, goods.Id, default));
+            Assert.NotNull(await catalog.GetAsync(CatalogKind.Goods, goods.Id, default));
             Assert.Equal(2, await db.StockTransactions.CountAsync());
             await db.GetService<IMigrator>().MigrateAsync("0");
             await db.Database.MigrateAsync();

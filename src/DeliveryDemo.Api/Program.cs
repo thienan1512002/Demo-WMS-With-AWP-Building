@@ -1,3 +1,4 @@
+using DeliveryDemo.Api;
 using DeliveryDemo.Infrastructure.Warehouse;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -12,6 +13,7 @@ builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
 var app = builder.Build();
 app.UseExceptionHandler();
 app.UseCors();
+app.MapMasterEndpoints();
 app.MapGet("/api/health", () => Results.Ok(new { status = "Healthy", service = "DeliveryDemo.Api" }));
 app.Run();
 
