@@ -19,4 +19,28 @@ h3 { font-size: 16px; margin: 20px 0 8px; }
 .modules p { font-size: 14px; line-height: 1.7; color: #71717a; }
 .module-state { display: inline-block; background: #f5f5f4; border-radius: 5px; font-size: 11px; padding: 5px 8px; margin-top: 12px; color: #71717a; }
 footer { padding: 20px 40px; font-size: 12px; color: #71717a; border-top: 1px solid #e5e4e2; }
+.catalog-menu, .catalog-heading, .catalog-filters, .pagination, .editor-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.catalog-menu { margin-top: 28px; }
+.catalog-menu a { padding: 8px 12px; border-radius: 6px; }
+.catalog-menu [aria-current="page"] { background: #4f46e5; color: white; }
+.catalog-heading { justify-content: space-between; }
+.catalog-filters { margin: 20px 0; align-items: end; }
+.catalog label { display: block; font-size: 14px; }
+.catalog input, .catalog select { display: block; margin-top: 8px; width: 100%; padding: 10px; border: 1px solid #a1a1aa; border-radius: 6px; font: inherit; background: white; color: inherit; }
+.catalog button { padding: 10px 14px; border: 1px solid #4f46e5; border-radius: 6px; background: white; color: #4338ca; font: inherit; cursor: pointer; }
+.catalog button:disabled { opacity: .55; cursor: default; }
+.catalog :is(button, input, select):focus-visible { outline: 2px solid #4f46e5; outline-offset: 3px; }
+.catalog [aria-invalid="true"] { border-color: #b91c1c; }
+.catalog [role="alert"] { color: #b91c1c; }
+.catalog-editor { background: white; padding: 24px; border: 1px solid #e5e4e2; border-radius: 12px; margin: 24px 0; }
+.catalog-editor h3 { margin-top: 0; }
+.catalog-editor fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.catalog-editor p { font-size: 14px; }
+.catalog input[readonly] { background: #f5f5f4; }
+.table-scroll { overflow-x: auto; }
+.catalog table { width: 100%; border-collapse: collapse; background: white; text-align: left; }
+.catalog caption { text-align: left; padding: 12px 0; }
+.catalog th, .catalog td { padding: 12px; border-bottom: 1px solid #e5e4e2; overflow-wrap: anywhere; }
+.pagination { justify-content: space-between; margin-top: 20px; font-size: 14px; }
+@media (max-width: 700px) { .catalog-filters label { width: 100%; } .catalog th, .catalog td { padding: 8px; } .catalog-editor { padding: 16px; } }
 @media (max-width: 700px) { .topbar { padding: 16px 20px; } main { padding: 36px 20px; } .modules { grid-template-columns: 1fr; } footer { padding: 20px; } }
