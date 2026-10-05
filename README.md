@@ -33,6 +33,10 @@ npm run lint
 
 ## Structure and conventions
 
+See [current architecture survey](docs/current-architecture.md) for the source-backed
+baseline, reusable abstractions, verification evidence and decisions needed before
+further warehouse implementation.
+
 - `src/DeliveryDemo.Domain`: domain models/rules, independent of API/persistence.
 - `src/DeliveryDemo.Application`: use cases/contracts; references Domain.
 - `src/DeliveryDemo.Infrastructure`: persistence/external adapters; references Application.
