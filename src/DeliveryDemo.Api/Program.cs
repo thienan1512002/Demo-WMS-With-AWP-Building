@@ -1,5 +1,11 @@
+using DeliveryDemo.Infrastructure.Warehouse;
+
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddProblemDetails();
+if (builder.Configuration.GetConnectionString("Warehouse") is { Length: > 0 } warehouseConnection)
+{
+    builder.Services.AddWarehousePersistence(warehouseConnection);
+}
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
     policy.WithOrigins(builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [])
         .AllowAnyHeader().AllowAnyMethod()));
