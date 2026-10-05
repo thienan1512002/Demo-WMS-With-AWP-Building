@@ -100,6 +100,23 @@ public sealed class MasterApiTests
         }
     }
 
+    [Theory]
+    [InlineData(0, 20)]
+    [InlineData(-1, 20)]
+    [InlineData(1, 0)]
+    [InlineData(1, 101)]
+    [InlineData(int.MaxValue, 100)]
+    public async Task ServiceRejectsInvalidPaginationBeforeDatabaseAccess(int page, int pageSize)
+    {
+        await using var db = new WarehouseDbContext(new DbContextOptionsBuilder<WarehouseDbContext>().UseNpgsql().Options);
+        var service = new MasterCatalog(db);
+        foreach (var kind in Enum.GetValues<CatalogKind>())
+        {
+            await Assert.ThrowsAsync<ArgumentException>(() => service.ListAsync(kind, page, pageSize, null, null, default));
+        }
+        Assert.Empty(db.ChangeTracker.Entries());
+    }
+
     private sealed class CatalogStub : IMasterCatalog
     {
         public MasterDetail Item { get; } = new(Guid.NewGuid(), "CODE", "Name", DateTime.UtcNow, null);

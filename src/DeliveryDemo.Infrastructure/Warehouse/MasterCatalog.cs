@@ -13,7 +13,8 @@ public sealed class MasterCatalog(WarehouseDbContext db) : IMasterCatalog
 
     public async Task<MasterPage> ListAsync(CatalogKind kind, int page, int pageSize, string? search, bool? archived, CancellationToken cancellationToken)
     {
-        if (page < 1 || pageSize < 1 || pageSize > 100) throw new ArgumentException("Invalid pagination.");
+        if (page < 1 || pageSize < 1 || pageSize > 100 || (long)(page - 1) * pageSize > int.MaxValue)
+            throw new ArgumentException("Invalid pagination.");
         var query = Query(kind);
         if (archived.HasValue) query = query.Where(x => (x.ArchivedAt != null) == archived.Value);
         if (!string.IsNullOrWhiteSpace(search))

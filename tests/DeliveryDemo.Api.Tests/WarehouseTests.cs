@@ -109,6 +109,34 @@ public sealed class WarehouseTests
                 await Assert.ThrowsAsync<CatalogConflictException>(() => catalog.UpdateAsync(kind, item.Id, new("MASTER", "Archived"), default));
                 Assert.False(await catalog.ArchiveAsync(kind, Guid.NewGuid(), default));
                 Assert.Null(await catalog.UpdateAsync(kind, Guid.NewGuid(), new("MISSING", "Missing"), default));
+                Assert.Null(await catalog.GetAsync(kind, Guid.NewGuid(), default));
+                var first = await catalog.CreateAsync(kind, new("PAGE-A", "Literal %_ marker"), default);
+                var second = await catalog.CreateAsync(kind, new("PAGE-B", "Other name"), default);
+                var secondPage = await catalog.ListAsync(kind, 2, 1, " PAGE- ", false, default);
+                Assert.Equal(2, secondPage.Total);
+                Assert.Equal(second.Id, Assert.Single(secondPage.Items).Id);
+                var literal = await catalog.ListAsync(kind, 1, 20, "%_", false, default);
+                Assert.Equal(first.Id, Assert.Single(literal.Items).Id);
+                var beyondEnd = await catalog.ListAsync(kind, 3, 1, "PAGE-", false, default);
+                Assert.Equal(2, beyondEnd.Total);
+                Assert.Empty(beyondEnd.Items);
+                async Task<bool> CreateCompetingMaster()
+                {
+                    await using var independent = Context(connection);
+                    try
+                    {
+                        await new MasterCatalog(independent).CreateAsync(kind, new("COMPETING", "Concurrent create"), default);
+                        return true;
+                    }
+                    catch (CatalogConflictException)
+                    {
+                        Assert.Empty(independent.ChangeTracker.Entries());
+                        return false;
+                    }
+                }
+                var competingCreates = await Task.WhenAll(CreateCompetingMaster(), CreateCompetingMaster());
+                Assert.Single(competingCreates, x => x);
+                Assert.Equal(1, (await catalog.ListAsync(kind, 1, 20, "COMPETING", false, default)).Total);
             }
             var goods = new Goods { Code = "G1", Name = "Goods" };
             var warehouse = new Domain.Warehouse.Warehouse { Code = "W1", Name = "Warehouse" };
@@ -174,13 +202,15 @@ public sealed class WarehouseTests
                 await tx.RollbackAsync();
             }
             Assert.Equal(3, (await db.InventoryBalances.AsNoTracking().SingleAsync()).Quantity);
-            warehouse.ArchivedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
+            Assert.True(await catalog.ArchiveAsync(CatalogKind.Warehouses, warehouse.Id, default));
+            Assert.NotNull((await catalog.GetAsync(CatalogKind.Warehouses, warehouse.Id, default))!.ArchivedAt);
             Assert.False(await Post(1, StockTransactionType.Receipt));
             Assert.Equal(2, await db.StockTransactions.CountAsync());
             // Archive after the rollback scenario, which needs active master data.
             Assert.True(await catalog.ArchiveAsync(CatalogKind.Goods, goods.Id, default));
             Assert.NotNull(await catalog.GetAsync(CatalogKind.Goods, goods.Id, default));
+            Assert.False(await Post(1, StockTransactionType.Receipt));
+            Assert.Equal(3, (await db.InventoryBalances.AsNoTracking().SingleAsync()).Quantity);
             Assert.Equal(2, await db.StockTransactions.CountAsync());
             await db.GetService<IMigrator>().MigrateAsync("0");
             await db.Database.MigrateAsync();
