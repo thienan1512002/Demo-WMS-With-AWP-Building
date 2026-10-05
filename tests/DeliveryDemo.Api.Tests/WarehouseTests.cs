@@ -135,8 +135,28 @@ public sealed class WarehouseTests
             Assert.Single(competing, x => x);
             Assert.Equal(3, (await db.InventoryBalances.SingleAsync()).Quantity);
             Assert.Equal(2, await db.StockTransactions.CountAsync());
+            // A BEFORE INSERT trigger has already changed the balance when a later
+            // ledger constraint fails. The whole statement must still roll back.
+            var existingPosting = await db.StockTransactions.AsNoTracking().FirstAsync();
+            async Task RejectPosting(Guid id, Guid goodsId, Guid warehouseId, int type, string actor)
+            {
+                await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlRawAsync(
+                    "INSERT INTO stock_transactions(id, goods_id, warehouse_id, type, quantity, occurred_at, created_at, actor) VALUES ({0},{1},{2},{3},1,now(),now(),{4})",
+                    id, goodsId, warehouseId, type, actor));
+                Assert.Equal(3, (await db.InventoryBalances.AsNoTracking().SingleAsync()).Quantity);
+                Assert.Equal(2, await db.StockTransactions.CountAsync());
+            }
+            await RejectPosting(existingPosting.Id, goods.Id, warehouse.Id, 1, "test");
+            await RejectPosting(Guid.NewGuid(), goods.Id, warehouse.Id, 99, "test");
+            await RejectPosting(Guid.NewGuid(), goods.Id, warehouse.Id, 1, " ");
+            await RejectPosting(Guid.NewGuid(), Guid.NewGuid(), warehouse.Id, 1, "test");
+            await RejectPosting(Guid.NewGuid(), goods.Id, Guid.NewGuid(), 1, "test");
             await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlRawAsync(
                 "UPDATE inventory_balances SET quantity = 100"));
+            await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlRawAsync(
+                "INSERT INTO inventory_balances SELECT * FROM inventory_balances"));
+            await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlRawAsync(
+                "UPDATE stock_transactions SET quantity = 1"));
             await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlRawAsync(
                 "DELETE FROM stock_transactions"));
             await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlRawAsync(

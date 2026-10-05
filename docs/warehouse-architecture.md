@@ -49,6 +49,24 @@ uniqueness, filtering, updates and archive/reference preservation.
 
 ## Inventory and history
 
+### Schema task decision after TASK-001
+
+The source-backed review in `current-architecture.md` confirms that this worktree
+already implements the warehouse persistence foundation. Retain the existing
+Domain models, Application contracts, EF/Npgsql mappings and InitialWarehouse
+migration; no additional tables or replacement migration are needed for this task.
+This preserves existing migration history and deployment compatibility. The
+materialized balance remains necessary for the existing atomic posting abstraction
+and inventory lookup. Keep its composite key and update it only through the ledger
+trigger in the same database transaction.
+
+The provider integration suite additionally verifies that duplicate ledger IDs,
+invalid transaction types/actors and missing masters cannot leave balance changes
+behind, even when a BEFORE INSERT trigger executes before a constraint fails.
+It rejects duplicate/direct balance writes and ledger edits, and retains the
+concurrent issue and up/down/up migration scenarios. No authentication, posting
+HTTP endpoints or additional business dimensions are introduced by this decision.
+
 Goods and Warehouse are separate master data with unique, nonempty codes and
 names. StockTransaction is an immutable receipt/issue ledger with positive
 numeric(20,6) quantities, actor, occurrence and creation timestamps. InventoryBalance
@@ -148,3 +166,15 @@ review's build and format checks passed; the fresh `TestResults/warehouse-backen
 records 23 passed tests and one skipped provider test because Docker access is
 denied in the model sandbox. AWP must run the full suite with
 `WAREHOUSE_POSTGRES_TESTS=1` using the TRX command above for fresh provider evidence.
+
+The schema task continuation verified the preserved implementation against all
+acceptance criteria without replacing the existing migration. With
+`NUGET_PACKAGES` pointing to this worktree's `.awp/nuget-packages`, a fresh
+`dotnet build --no-restore` passed with zero warnings/errors,
+`dotnet test --no-build` passed 23 tests and skipped the opt-in provider test,
+and `dotnet format --verify-no-changes --no-restore` passed. The operator's latest
+feedback reports all 24 backend tests passing, including disposable PostgreSQL,
+and successful build/format checks after fixing the package cache. That full
+provider result is operator-reported evidence, not a new Docker run in this
+sandbox. The added constraint-failure rollback scenarios remain in the provider
+suite for AWP's independent full-profile verification.
